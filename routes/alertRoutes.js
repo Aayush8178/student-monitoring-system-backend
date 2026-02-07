@@ -1,20 +1,15 @@
 const express = require("express");
-const { addAlert, getAlerts } = require("../controllers/alertController");
-
-const { authMiddleware } = require("../controllers/authController");
-
 const router = express.Router();
+const { authMiddleware } = require("../controllers/authController");
+const {
+  getAlerts,
+  updateAlertStatus
+} = require("../controllers/alertController");
 
-// ✅ Admin can create alerts manually
-router.post("/", authMiddleware(["admin"]), addAlert);
+// view all alerts (admin only)
+router.get("/", authMiddleware(["admin"]), getAlerts);
 
-// ✅ Admin sees all alerts
-// ✅ Student only sees their own alerts
-router.get("/", authMiddleware(["admin", "student"]), async (req, res, next) => {
-  if (req.user.role === "student") {
-    req.query.studentId = req.user.studentId;
-  }
-  next();
-}, getAlerts);
+// update alert status (admin only )
+router.put("/:id/status", authMiddleware(["admin"]), updateAlertStatus);
 
 module.exports = router;

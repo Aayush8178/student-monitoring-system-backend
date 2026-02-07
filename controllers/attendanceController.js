@@ -1,85 +1,133 @@
-const { Attendance, Student } = require("../db");
-const transporter = require("../utils/email");
 const XLSX = require("xlsx");
+const { Attendance, Student, Alert } = require("../db");
+const transporter = require("../utils/email");
 
-// 📌 Upload & process Excel attendance
-exports.uploadAttendanceExcel = async (req, res) => {
+const uploadAttendance = async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No file uploaded" });
-    }
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
-    // Parse Excel file
-    const workbook = XLSX.readFile(req.file.path);
+    const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
     const sheetName = workbook.SheetNames[0];
-    const sheet = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+    const data = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
-    // Expected Excel columns: studentId, subject, date, status
-    for (const row of sheet) {
-      await Attendance.create({
-        studentId: row.studentId,
-        subject: row.subject,
-        date: new Date(row.date),
-        status: row.status.toLowerCase(), // "present" / "absent"
-      });
-    }
+    const studentsToNotify = new Set();
 
-    // ✅ Update each student's summary
-    const students = await Student.find();
+    for (const row of data) {
+      const { studentId, subject, date, status } = row;
+      if (!studentId || !subject || !date || !status) continue;
 
-    for (const student of students) {
-      const totalClasses = await Attendance.countDocuments({ studentId: student._id });
-      const attendedClasses = await Attendance.countDocuments({
-        studentId: student._id,
-        status: "present",
-      });
+      await Attendance.create({ studentId, subject, date, status });
 
-      const percentage = totalClasses > 0 ? (attendedClasses / totalClasses) * 100 : 0;
+      const records = await Attendance.find({ studentId });
+      const totalClasses = records.length;
+      const attendedClasses = records.filter(r => r.status === "present").length;
+      const percentage = totalClasses === 0 ? 0 : Math.round((attendedClasses / totalClasses) * 100);
 
-      // ✅ Update Student collection
-      student.totalClasses = totalClasses;
-      student.attendedClasses = attendedClasses;
-      student.attendancePercentage = percentage.toFixed(2);
-      await student.save();
+      const student = await Student.findByIdAndUpdate(
+        studentId,
+        { totalClasses, attendedClasses, attendancePercentage: percentage },
+        { new: true }
+      );
 
-      // ✅ Send warning email if below 60%
-      if (percentage < 60 && student.guardian) {
-        const mailOptions = {
-          from: `"School Admin" <${process.env.EMAIL_USER}>`,
-          to: student.guardian,
-          subject: "⚠️ Low Attendance Warning",
-          text: `Dear Guardian,
+      if (percentage < 60) {
+        studentsToNotify.add(student._id.toString());
 
-This is to notify you that your ward **${student.name}** has an attendance percentage of ${percentage.toFixed(
-            2
-          )}% which is below the required 60%.
+        const existing = await Alert.findOne({
+          studentId: student._id,
+          reason: "Low Attendance (<60%)",
+        });
 
-Kindly ensure regular attendance to avoid further disciplinary action.
-
-Regards,  
-School Administration`,
-        };
-
-        await transporter.sendMail(mailOptions);
-        console.log(
-          `📩 Low attendance email sent to guardian of ${student.name} (${percentage.toFixed(2)}%)`
-        );
+        if (!existing) {
+          await Alert.create({
+            studentId: student._id,
+            reason: "Low Attendance (<60%)",
+            status: "pending",
+          });
+        }
       }
     }
 
-    res.json({ message: "Attendance uploaded & processed successfully" });
+    // sending one mail to guardians 
+    for (const studentId of studentsToNotify) {
+      const student = await Student.findById(studentId);
+      if (student.guardian) {
+        await transporter.sendMail({
+          from: `"Student Monitoring System" <${process.env.EMAIL_USER}>`,
+          to: student.guardian,
+          subject: "Important Notice Regarding Student Attendance & Performance",
+          html: `
+            <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+              <div style="max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px;">
+                
+                <h2 style="color: #1d4ed8; text-align: center;">
+                  Student Performance Alert
+                </h2>
+
+                <p>Dear Parent / Guardian,</p>
+
+                <p>
+                  We would like to inform you that your ward’s recent academic indicators
+                  require attention.
+                </p>
+
+                <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+                  <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd;"><strong>Student Name</strong></td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${student.name}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd;"><strong>Attendance Percentage</strong></td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${student.attendancePercentage}%</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd;"><strong>Average Academic Score</strong></td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${student.averageScore || 0}%</td>
+                  </tr>
+                </table>
+
+                <p>
+                  Regular attendance and consistent academic performance are important for
+                  overall success. We kindly request your support in helping improve both
+                  attendance and study outcomes.
+                </p>
+
+                <p>
+                  Please feel free to contact the institution if you would like further
+                  details or guidance.
+                </p>
+
+                <p style="margin-top: 20px;">
+                  Regards,<br />
+                  <strong>Academic Monitoring Team</strong><br />
+                  <span style="color: #555;">Student Monitoring System</span>
+                </p>
+
+                <hr style="margin-top: 30px;" />
+                <p style="font-size: 12px; color: #777; text-align: center;">
+                  This is an automated message. Please do not reply to this email.
+                </p>
+              </div>
+            </div>
+          `,
+        });
+      }
+    }
+
+    res.json({ message: "Attendance uploaded successfully" });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ message: "Attendance upload failed" });
   }
 };
 
-// ✅ Get Attendance Summary (from Student collection)
-exports.getAttendanceSummary = async (req, res) => {
+const getStudentAttendance = async (req, res) => {
   try {
-    const students = await Student.find().select("name guardian totalClasses attendedClasses attendancePercentage");
-
-    res.json(students);
+    const studentId = req.user.studentId;
+    const records = await Attendance.find({ studentId }).sort({ date: -1 }).limit(10);
+    res.json(records);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ message: "Failed to fetch attendance history" });
   }
 };
+
+module.exports = { uploadAttendance, getStudentAttendance };

@@ -1,80 +1,73 @@
-const { Assessment, Student } = require("../db");
-const transporter = require("../utils/email");
 const XLSX = require("xlsx");
+const { Assessment, Student, Alert } = require("../db");
+const transporter = require("../utils/email");
 
-// 📌 Upload & process Excel assessments
-exports.uploadAssessmentExcel = async (req, res) => {
+// upload assessments
+exports.uploadAssessment = async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No file uploaded" });
-    }
+    const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+    const data = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 
-    // Parse Excel file
-    const workbook = XLSX.readFile(req.file.path);
-    const sheetName = workbook.SheetNames[0];
-    const sheet = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+    const studentsToNotify = new Set();
 
-    // Expected Excel columns: studentId, subject, testDate, score, attempt
-    for (const row of sheet) {
-      await Assessment.create({
-        studentId: row.studentId,
-        subject: row.subject,
-        testDate: new Date(row.testDate),
-        score: row.score,
-        attempt: row.attempt || 1,
-      });
-    }
+    for (const row of data) {
+      const { studentId, subject, testDate, score } = row;
+      if (!studentId) continue;
 
-    // ✅ Update each student's average
-    const students = await Student.find();
+      await Assessment.create({ studentId, subject, testDate, score });
 
-    for (const student of students) {
-      const tests = await Assessment.find({ studentId: student._id });
+      const records = await Assessment.find({ studentId });
+      const totalTests = records.length;
+      const averageScore = Math.round(records.reduce((s, r) => s + r.score, 0) / totalTests);
 
-      if (tests.length > 0) {
-        const totalScore = tests.reduce((acc, t) => acc + t.score, 0);
-        const average = totalScore / tests.length;
+      const student = await Student.findByIdAndUpdate(
+        studentId,
+        { totalTests, averageScore },
+        { new: true }
+      );
 
-        student.totalTests = tests.length;
-        student.averageScore = average.toFixed(2);
-        await student.save();
+      if (averageScore < 40) {
+        studentsToNotify.add(student._id.toString());
 
-        // ✅ Send warning if average < 40
-        if (average < 40 && student.guardian) {
-          const mailOptions = {
-            from: `"School Admin" <${process.env.EMAIL_USER}>`,
-            to: student.guardian,
-            subject: "⚠️ Academic Warning: Low Average Score",
-            text: `Dear Guardian,
+        const existing = await Alert.findOne({
+          studentId: student._id,
+          reason: "Low Academic Performance (<40%)"
+        });
 
-This is to inform you that your ward **${student.name}** has an average score of ${average.toFixed(
-              2
-            )}% across ${tests.length} tests.
-
-This is below the required threshold. Kindly provide support for improvement.
-
-Regards,  
-School Administration`,
-          };
-
-          await transporter.sendMail(mailOptions);
-          console.log(`📩 Low score email sent to guardian of ${student.name}`);
+        if (!existing) {
+          await Alert.create({
+            studentId: student._id,
+            reason: "Low Academic Performance (<40%)",
+            status: "pending"
+          });
         }
       }
     }
 
-    res.json({ message: "Assessments uploaded & processed successfully" });
+    res.json({ message: "Assessment uploaded successfully" });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ message: "Assessment upload failed" });
   }
 };
 
-// ✅ Get Assessment Summary (admin or student)
-exports.getAssessmentSummary = async (req, res) => {
+// student assessment list
+exports.getStudentAssessments = async (req, res) => {
+  const records = await Assessment.find({ studentId: req.user.studentId }).sort({ testDate: -1 });
+  res.json(records);
+};
+
+// Ttend 
+exports.getAssessmentTrend = async (req, res) => {
   try {
-    const students = await Student.find().select("name guardian totalTests averageScore");
-    res.json(students);
+    const records = await Assessment.find({ studentId: req.user.studentId }).sort({ testDate: 1 });
+
+    const trend = records.map(r => ({
+      date: new Date(r.testDate).toLocaleDateString(),
+      score: r.score
+    }));
+
+    res.json(trend);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ message: "Failed to fetch trend data" });
   }
 };

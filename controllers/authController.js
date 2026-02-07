@@ -1,19 +1,35 @@
-const { User } = require("../db");
+const { User, Student } = require("../db");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
-// ✅ Signup
+// signup function
 exports.signup = async (req, res) => {
   try {
     const { name, email, password, role, studentId } = req.body;
 
+    let linkedStudentId = null;
+
+    if (role === "student") {
+      if (!studentId) {
+        return res.status(400).json({ error: "studentId is required for students" });
+      }
+
+      const studentExists = await Student.findById(studentId);
+      if (!studentExists) {
+        return res.status(404).json({ error: "Student not found" });
+      }
+
+      linkedStudentId = studentId;
+    }
+
     const hashed = await bcrypt.hash(password, 10);
+
     const user = await User.create({
       name,
       email,
       password: hashed,
       role: role || "student",
-      studentId: studentId || null,
+      studentId: linkedStudentId,
     });
 
     res.json({ message: "User registered", user });
@@ -22,7 +38,7 @@ exports.signup = async (req, res) => {
   }
 };
 
-// ✅ Login
+// login function
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -45,7 +61,7 @@ exports.login = async (req, res) => {
   }
 };
 
-// ✅ Middleware (moved here)
+// middleware
 exports.authMiddleware = (roles = []) => {
   return (req, res, next) => {
     try {
@@ -55,7 +71,6 @@ exports.authMiddleware = (roles = []) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       req.user = decoded;
 
-      // Role-based access check
       if (roles.length && !roles.includes(decoded.role)) {
         return res.status(403).json({ error: "Forbidden" });
       }

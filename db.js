@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-// ✅ Student
+// Student
 const studentSchema = new mongoose.Schema({
   name: { type: String, required: true },
   contact: String,
@@ -18,7 +18,7 @@ const studentSchema = new mongoose.Schema({
 
 
 
-// ✅ Attendance
+// Attendance
 const attendanceSchema = new mongoose.Schema({
   studentId: { type: mongoose.Schema.Types.ObjectId, ref: "Student" },
   subject: String,
@@ -26,7 +26,7 @@ const attendanceSchema = new mongoose.Schema({
   status: { type: String, enum: ["present", "absent"] }
 }, { timestamps: true });
 
-// ✅ Assessment
+// Assessment
 const assessmentSchema = new mongoose.Schema({
   studentId: { type: mongoose.Schema.Types.ObjectId, ref: "Student" },
   subject: String,
@@ -35,7 +35,7 @@ const assessmentSchema = new mongoose.Schema({
   attempt: Number
 }, { timestamps: true });
 
-// ✅ Fee
+// Fee
 const feeSchema = new mongoose.Schema({
   studentId: { type: mongoose.Schema.Types.ObjectId, ref: "Student" },
   dueDate: Date,
@@ -43,7 +43,7 @@ const feeSchema = new mongoose.Schema({
   amount: Number
 }, { timestamps: true });
 
-// ✅ Alert
+// Alert
 const alertSchema = new mongoose.Schema({
   studentId: { type: mongoose.Schema.Types.ObjectId, ref: "Student" },
   reason: String,
