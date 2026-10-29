@@ -13,7 +13,19 @@ const studentSchema = new mongoose.Schema({
 
   // Assessment summary
   totalTests: { type: Number, default: 0 },
-  averageScore: { type: Number, default: 0 }
+  averageScore: { type: Number, default: 0 },
+
+  // User Preferences
+  preferences: {
+    focusSubjects: [String],
+    availableSlots: { type: String, default: "all" },
+    preferredDays: [String],
+    targetAttendance: { type: Number, default: 75 },
+    semesterStart: String,
+    semesterEnd: String,
+    maxClassesPerDay: { type: Number, default: 4 },
+    availability: { type: Map, of: new mongoose.Schema({ enabled: Boolean, start: String, end: String }, { _id: false }) }
+  }
 }, { timestamps: true });
 
 
@@ -48,7 +60,18 @@ const alertSchema = new mongoose.Schema({
   studentId: { type: mongoose.Schema.Types.ObjectId, ref: "Student" },
   reason: String,
   date: { type: Date, default: Date.now },
-  status: { type: String, enum: ["pending", "sent"], default: "pending" }
+  status: { type: String, enum: ["pending", "sent", "contacted", "resolved"], default: "pending" }
+}, { timestamps: true });
+
+// Timetable
+const timetableSchema = new mongoose.Schema({
+  studentId: { type: mongoose.Schema.Types.ObjectId, ref: "Student" },
+  schedule: [{
+    subject: String,
+    day: String,
+    time: String,
+    duration: { type: Number, default: 60 }
+  }]
 }, { timestamps: true });
 
 
@@ -66,5 +89,6 @@ const Attendance = mongoose.model("Attendance", attendanceSchema);
 const Assessment = mongoose.model("Assessment", assessmentSchema);
 const Fee = mongoose.model("Fee", feeSchema);
 const Alert = mongoose.model("Alert", alertSchema);
+const Timetable = mongoose.model("Timetable", timetableSchema);
 
-module.exports = { Student, Attendance, Assessment, Fee, Alert, User };
+module.exports = { Student, Attendance, Assessment, Fee, Alert, User, Timetable };

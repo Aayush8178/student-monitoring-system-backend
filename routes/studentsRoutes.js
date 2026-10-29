@@ -9,6 +9,8 @@ const {
   deleteStudent,
   getMyProfile,
   recomputeStudentSummary,
+  savePreferences,
+  getPreferences,
 } = require("../controllers/StudentController");
 
 const { authMiddleware } = require("../controllers/authController");
@@ -19,6 +21,8 @@ router.get("/", authMiddleware(["admin"]), getStudents);
 
 // student profile
 router.get("/me", authMiddleware(["student"]), getMyProfile);
+
+router.get("/preferences", authMiddleware(["student"]), getPreferences);
 
 // admin / student access by ID
 router.get("/:id", authMiddleware(["admin", "student"]), getStudent);
@@ -31,5 +35,9 @@ router.post(
   authMiddleware(["admin"]),
   recomputeStudentSummary
 );
+
+// Student preferences
+router.post("/preferences", authMiddleware(["student"]), savePreferences);
+
 
 module.exports = router;

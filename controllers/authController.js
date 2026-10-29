@@ -42,8 +42,17 @@ exports.signup = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
+    if (typeof email !== "string" || typeof password !== "string" || !email.trim() || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
 
-    const user = await User.findOne({ email });
+    const normalizedEmail = email.trim();
+    let user = await User.findOne({ email: normalizedEmail });
+    // Preserve existing mixed-case accounts without changing stored passwords.
+    if (!user) {
+      const matches = await User.find({ email: normalizedEmail }).collation({ locale:'en', strength:2 }).limit(2);
+      if (matches.length === 1) user = matches[0];
+    }
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const match = await bcrypt.compare(password, user.password);

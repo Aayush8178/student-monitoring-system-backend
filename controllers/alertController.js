@@ -17,11 +17,14 @@ exports.getAlerts = async (req, res) => {
 exports.updateAlertStatus = async (req, res) => {
   try {
     const { status } = req.body;
+    if (!["pending", "sent", "contacted", "resolved"].includes(status)) {
+      return res.status(400).json({ message: "Invalid alert status" });
+    }
 
     const alert = await Alert.findByIdAndUpdate(
       req.params.id,
       { status },
-      { new: true }
+      { new: true, runValidators: true }
     );
 
     res.json({ message: "Alert status updated", alert });

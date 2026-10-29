@@ -114,3 +114,21 @@ exports.recomputeStudentSummary = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// Store validated planner settings against the authenticated student.
+exports.savePreferences = async (req, res) => {
+  try {
+    const preferences = require('../services/schedulePolicy').validatePreferences(req.body);
+    if (!req.user.studentId) return res.status(404).json({ message: 'This account is not linked to a student profile. Contact your administrator.' });
+    const student = await Student.findByIdAndUpdate(req.user.studentId, { $set: { preferences } }, { new:true, runValidators:true });
+    if (!student) return res.status(404).json({ message: 'Student profile not found' });
+    res.json({ message:'Planner preferences saved', student });
+  } catch (error) { res.status(400).json({ message:error.message }); }
+};
+exports.getPreferences = async (req, res) => {
+  try {
+    const student = await Student.findById(req.user.studentId);
+    if (!student) return res.status(404).json({ message:'Student profile not found' });
+    res.json({ preferences:student.preferences });
+  } catch (error) { res.status(500).json({ message:'Unable to load preferences' }); }
+};
